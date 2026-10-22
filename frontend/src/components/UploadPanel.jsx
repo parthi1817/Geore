@@ -52,7 +52,7 @@ export default function UploadPanel({
 
   const renderUploadCard = ({
     image,
-    label,
+    _label,
     helperText,
     placeholder,
     refInput,

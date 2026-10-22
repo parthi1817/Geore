@@ -12,10 +12,17 @@ export async function analyzeImages(formData) {
     body: formData,
   });
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Analysis failed (${res.status}): ${text}`);
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
   }
 
-  return res.json();
+  if (!res.ok || (data && data.error)) {
+    const errorMsg = data?.error || (data?.detail) || `Analysis failed (${res.status})`;
+    throw new Error(errorMsg);
+  }
+
+  return data;
 }

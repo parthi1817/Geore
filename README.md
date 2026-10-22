@@ -68,9 +68,14 @@ Returns `{"status": "ok"}`.
 
 ### `POST /analyze`
 Multipart form:
-- `image1` — file (required)
-- `image2` — file (optional)
 - `query` — string (required)
+- `image1` — file (optional if `location` provided)
+- `image2` — file (optional comparison/SAR image)
+- `location` — string (optional, e.g. "Vizag Port" for live Google Earth Engine fetch)
 - `has_sar` — boolean (optional, default `false`)
 
-Returns JSON with `answer`, `task`, `bbox`, `confidence`, `execution_trace`.
+Returns JSON with `answer`, `task`, `detection`, `confidence`, `execution_trace`, `image1_base64`, `session_id`, and spectral charts/geojson when applicable.
+
+### `GET /generate_report/{session_id}`
+Generates and downloads a publication-ready PDF analysis report.
+

@@ -13,3 +13,5 @@ __pycache__/
 *.pyc
 .env
 node_modules/
+
+service_account.json

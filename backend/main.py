@@ -5,14 +5,27 @@ Exposes the same agentic pipeline (router → toolkit → prompt → VLM)
 that app.py ran inline in Streamlit, but as HTTP endpoints.
 """
 
+import os
 import json
 import time
-import numpy as np
+import base64
 from io import BytesIO
 from typing import Optional
+from dotenv import load_dotenv
+
+# Ensure .env is loaded even if run from project root
+_env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+if os.path.exists(_env_path):
+    load_dotenv(_env_path)
+else:
+    load_dotenv()
+
+import numpy as np
+
 
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
 from PIL import Image
 
 from router import classify_query
@@ -80,10 +93,16 @@ def _load_image(upload: UploadFile) -> Image.Image:
     return Image.open(BytesIO(data)).convert("RGB")
 
 
+def _image_to_base64(img: Image.Image, fmt="JPEG") -> str:
+    """Convert PIL Image to base64 string."""
+    buf = BytesIO()
+    img.convert("RGB").save(buf, format=fmt, quality=85)
+    return base64.b64encode(buf.getvalue()).decode("utf-8")
+
+
 import os
 import uuid
 import glob
-from fastapi.responses import FileResponse
 from reportlab.platypus import SimpleDocTemplate
 from reportlab.lib.pagesizes import letter
 
@@ -150,7 +169,7 @@ async def analyze(
         source_type = "gee_live_fetch"
         lat, lon = get_coordinates(location)
         if lat is None or lon is None:
-            return {"error": "Could not geocode location."}
+            return JSONResponse(status_code=400, content={"error": f"Could not find coordinates for '{location}'. Please try a nearby city or standard spelling (e.g. 'Tirupati')."})
         
         fetched_coords = {"lat": lat, "lon": lon}
         fetch_date = datetime.now().strftime("%Y-%m-%d")
@@ -171,13 +190,13 @@ async def analyze(
                 images.append(img1_gee)
                 
         if not images:
-            return {"error": "Could not fetch images for the given location."}
+            return JSONResponse(status_code=400, content={"error": "Could not fetch satellite images for the given location."})
         
         img1 = images[0]
         img2 = images[1] if len(images) > 1 else None
     else:
         if image1 is None:
-            return {"error": "Must provide either image1 or location."}
+            return JSONResponse(status_code=400, content={"error": "Must provide either image1 or location."})
         img1 = _load_image(image1)
         images.append(img1)
         img2 = None
@@ -300,6 +319,12 @@ async def analyze(
     if flood_geojson:
         response["flood_geojson"] = flood_geojson
         
+    # Send satellite images to frontend for display
+    if img1:
+        response["image1_base64"] = _image_to_base64(img1)
+    if img2:
+        response["image2_base64"] = _image_to_base64(img2)
+
     # Inject query for the report
     response["query"] = query
 

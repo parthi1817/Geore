@@ -832,3 +832,24 @@ button {
     align-self: stretch;
   }
 }
+
+/* Error Banner */
+.result-error {
+  margin-top: 16px;
+  padding: 14px 18px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: var(--radius);
+  color: #fca5a5;
+  font-size: 14px;
+  line-height: 1.5;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.result-error-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}

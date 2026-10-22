@@ -1,4 +1,13 @@
 import os
+from dotenv import load_dotenv
+
+# Ensure .env is loaded even if run from project root
+_env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+if os.path.exists(_env_path):
+    load_dotenv(_env_path)
+else:
+    load_dotenv()
+
 import ee
 import requests
 from io import BytesIO
@@ -9,26 +18,78 @@ from geopy.geocoders import Nominatim
 # Initialize GEE
 def init_gee():
     try:
-        ee.Initialize()
-    except Exception as e:
-        print("GEE default initialization failed:", e)
         project_id = os.environ.get("GEE_PROJECT_ID")
         key_path = os.environ.get("GEE_SERVICE_ACCOUNT_KEY_PATH")
-        if project_id and key_path:
-            try:
-                credentials = ee.ServiceAccountCredentials('', key_path)
-                ee.Initialize(credentials, project=project_id)
-            except Exception as e2:
-                print("Fallback GEE initialization failed:", e2)
+        if key_path and not os.path.isabs(key_path):
+            candidate = os.path.join(os.path.dirname(os.path.abspath(__file__)), key_path)
+            if os.path.exists(candidate):
+                key_path = candidate
+        
+        if project_id and key_path and os.path.exists(key_path):
+            credentials = ee.ServiceAccountCredentials('', key_path)
+            ee.Initialize(credentials, project=project_id)
+        elif project_id:
+            ee.Initialize(project=project_id)
+        else:
+            ee.Initialize()
+    except Exception as e:
+        print("GEE initialization failed:", e)
 
 init_gee()
 
+
+import re
+
 def get_coordinates(location_str):
-    """Geocodes a location string using Nominatim."""
+    """Geocodes a location string using Nominatim with intelligent fallbacks."""
+    if not location_str:
+        return None, None
+        
+    # Clean punctuation and extra spaces
+    cleaned = re.sub(r'[;,.\-_]', ' ', location_str).strip()
+    if not cleaned:
+        return None, None
+
     geolocator = Nominatim(user_agent="SatQuery_AI_Agent")
-    location = geolocator.geocode(location_str)
-    if location:
-        return location.latitude, location.longitude
+    
+    candidates = [cleaned]
+    
+    # 1. Common transliterations (e.g. tirupathi -> tirupati)
+    t_fixed = re.sub(r'th([aeiou])', r't\1', cleaned, flags=re.IGNORECASE)
+    if t_fixed.lower() != cleaned.lower():
+        candidates.append(t_fixed)
+        
+    # 2. Strip geographic descriptors (forest, hills, jungle, etc.)
+    qualifiers = [
+        r'\bforests?\b', r'\bhills?\b', r'\bjungle\b', r'\breserve\b', 
+        r'\bsanctuary\b', r'\bnational park\b', r'\blake\b', r'\briver\b', 
+        r'\bport\b', r'\bvalley\b', r'\brange\b', r'\bdistrict\b'
+    ]
+    stripped = cleaned
+    for q in qualifiers:
+        stripped = re.sub(q, '', stripped, flags=re.IGNORECASE).strip()
+    
+    if stripped and stripped.lower() != cleaned.lower():
+        candidates.append(stripped)
+        stripped_t = re.sub(r'th([aeiou])', r't\1', stripped, flags=re.IGNORECASE)
+        if stripped_t.lower() != stripped.lower():
+            candidates.append(stripped_t)
+
+    # 3. Add country hint if not already present
+    extended_candidates = list(candidates)
+    for c in candidates:
+        if "india" not in c.lower():
+            extended_candidates.append(f"{c}, India")
+
+    for query in extended_candidates:
+        try:
+            loc = geolocator.geocode(query, timeout=5)
+            if loc:
+                print(f"[Geocoder] Resolved '{location_str}' via '{query}' -> ({loc.latitude}, {loc.longitude})")
+                return loc.latitude, loc.longitude
+        except Exception as e:
+            print(f"[Geocoder] Error for '{query}': {e}")
+            
     return None, None
 
 def get_default_date_range(days=60):
@@ -63,7 +124,7 @@ def fetch_optical_image(lat, lon, buffer_meters=2000, date_range=None):
     collection = (ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
                   .filterBounds(region)
                   .filterDate(date_range[0], date_range[1])
-                  .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
+                  .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 100))
                   .sort('CLOUDY_PIXEL_PERCENTAGE'))
     
     if collection.size().getInfo() == 0:
@@ -120,7 +181,7 @@ def fetch_optical_multiband(lat, lon, buffer_meters=2000, date_range=None):
     collection = (ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
                   .filterBounds(region)
                   .filterDate(date_range[0], date_range[1])
-                  .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
+                  .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 100))
                   .sort('CLOUDY_PIXEL_PERCENTAGE'))
     
     if collection.size().getInfo() == 0:

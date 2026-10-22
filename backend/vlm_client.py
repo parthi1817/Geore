@@ -1,7 +1,7 @@
 """
 vlm_client.py — Dual-provider VLM client for GEORE.
 
-Primary:  Google Gemini (gemini-2.5-flash) via google-genai SDK
+Primary:  Google Gemini (gemini-3.8-flash) via google-genai SDK
 Fallback: NVIDIA (nemotron-nano-12b-v2-vl) via OpenAI-compatible API
 
 Automatic failover: if Gemini fails (rate limit, timeout, error),
@@ -19,7 +19,12 @@ from typing import List, Tuple, Optional
 from PIL import Image
 from dotenv import load_dotenv
 
-load_dotenv()
+_env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+if os.path.exists(_env_path):
+    load_dotenv(_env_path)
+else:
+    load_dotenv()
+
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 NVIDIA_MODEL = os.getenv("NVIDIA_MODEL", "nvidia/nemotron-nano-12b-v2-vl")
 NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 
@@ -44,8 +49,8 @@ def _pil_to_base64(image: Image.Image, fmt: str = "PNG") -> str:
 def _call_gemini(prompt: str, images: List[Image.Image]) -> str:
     """
     Call Google Gemini via the google-genai SDK.
-
-    Supports multi-image input (pass all images in one request).
+    Includes automated retry on transient 503 (high demand) / 429 errors
+    and fallback between available models (gemini-3.8-flash, gemini-3.6-flash).
     """
     from google import genai
 
@@ -56,12 +61,33 @@ def _call_gemini(prompt: str, images: List[Image.Image]) -> str:
     for img in images:
         contents.append(img)
 
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=contents,
-    )
+    candidate_models = [GEMINI_MODEL]
+    if "3.8" in GEMINI_MODEL and "gemini-3.6-flash" not in candidate_models:
+        candidate_models.append("gemini-3.6-flash")
+    elif "3.6" in GEMINI_MODEL and "gemini-3.8-flash" not in candidate_models:
+        candidate_models.append("gemini-3.8-flash")
 
-    return response.text
+    last_error = None
+    for model_name in candidate_models:
+        for attempt in range(3):
+            try:
+                logger.info(f"Invoking Gemini ({model_name}), attempt {attempt + 1}...")
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=contents,
+                )
+                return response.text
+            except Exception as e:
+                last_error = e
+                err_str = str(e)
+                if any(k in err_str for k in ["503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "high demand"]):
+                    logger.warning(f"Gemini {model_name} transient error on attempt {attempt + 1}: {e}. Retrying in 2s...")
+                    time.sleep(1.5 * (attempt + 1))
+                else:
+                    logger.warning(f"Gemini {model_name} non-transient error: {e}")
+                    break
+
+    raise last_error
 
 
 # ── NVIDIA provider (OpenAI-compatible) ──────────────────────────────────────

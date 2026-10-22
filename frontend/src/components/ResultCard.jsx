@@ -17,6 +17,18 @@ const TASK_LABELS = {
  * in the main view.
  */
 export default function ResultCard({ result, image1Url }) {
+  if (!result || !result.answer) {
+    if (result?.error) {
+      return (
+        <div className="result-error">
+          <span className="result-error-icon">⚠️</span>
+          <span>{result.error}</span>
+        </div>
+      );
+    }
+    return null;
+  }
+
   const cropCanvasRef = useRef(null);
   const [techOpen, setTechOpen] = useState(false);
   const [rawOpen, setRawOpen] = useState(false);

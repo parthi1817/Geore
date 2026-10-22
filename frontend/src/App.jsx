@@ -18,15 +18,18 @@ export default function App() {
   const [error, setError] = useState(null);
 
 
-  // Object URLs for preview
-  const image1Url = useMemo(
-    () => (image1 ? URL.createObjectURL(image1) : null),
-    [image1]
-  );
-  const image2Url = useMemo(
-    () => (image2 ? URL.createObjectURL(image2) : null),
-    [image2]
-  );
+  // Object URLs for preview or GEE fetched base64
+  const image1Url = useMemo(() => {
+    if (image1) return URL.createObjectURL(image1);
+    if (result?.image1_base64) return `data:image/jpeg;base64,${result.image1_base64}`;
+    return null;
+  }, [image1, result]);
+
+  const image2Url = useMemo(() => {
+    if (image2) return URL.createObjectURL(image2);
+    if (result?.image2_base64) return `data:image/jpeg;base64,${result.image2_base64}`;
+    return null;
+  }, [image2, result]);
 
 
   const canRun = (!!image1 || location.trim().length > 0) && query.trim().length > 0;
@@ -121,9 +124,12 @@ export default function App() {
 
           {/* Results rendered below the image */}
           {error && (
-            <div className="result-error">{error}</div>
+            <div className="result-error">
+              <span className="result-error-icon">⚠️</span>
+              <span>{error}</span>
+            </div>
           )}
-          {result && (
+          {!error && result && result.answer && (
             <div className="result-below-image">
               <ResultCard result={result} image1Url={image1Url} />
             </div>
