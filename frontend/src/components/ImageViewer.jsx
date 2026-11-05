@@ -28,7 +28,19 @@ export default function ImageViewer({ image1Url, image2Url, image2Label, bbox })
     const ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    const [xMin, yMin, xMax, yMax] = bbox;
+    let [xMin, yMin, xMax, yMax] = bbox;
+    // Normalize coordinates if model returned [0, 1000] scale instead of [0, 1]
+    if (Math.max(xMin, yMin, xMax, yMax) > 1.0) {
+      xMin /= 1000;
+      yMin /= 1000;
+      xMax /= 1000;
+      yMax /= 1000;
+    }
+    xMin = Math.max(0, Math.min(1, xMin));
+    yMin = Math.max(0, Math.min(1, yMin));
+    xMax = Math.max(0, Math.min(1, xMax));
+    yMax = Math.max(0, Math.min(1, yMax));
+
     const x = xMin * canvas.width;
     const y = yMin * canvas.height;
     const w = (xMax - xMin) * canvas.width;

@@ -10,7 +10,7 @@ const TASK_LABELS = {
 };
 
 /**
- * ResultCard \u2014 Professional GIS-style analysis result panel.
+ * ResultCard — Professional GIS-style analysis result panel.
  *
  * Designed to feel like QGIS / Sentinel Hub / Google Earth Engine,
  * not like an AI chatbot. No emojis, no bright pills, no raw JSON
@@ -35,6 +35,24 @@ export default function ResultCard({ result, image1Url }) {
 
   const { answer, task, bbox, confidence, execution_trace: trace } = result;
 
+  // Normalize bbox if model returned [0, 1000] scale instead of [0, 1]
+  const normalizedBbox = (() => {
+    if (!bbox || bbox.length !== 4) return null;
+    let [xMin, yMin, xMax, yMax] = bbox;
+    if (Math.max(xMin, yMin, xMax, yMax) > 1.0) {
+      xMin /= 1000;
+      yMin /= 1000;
+      xMax /= 1000;
+      yMax /= 1000;
+    }
+    return [
+      Math.max(0, Math.min(1, xMin)),
+      Math.max(0, Math.min(1, yMin)),
+      Math.max(0, Math.min(1, xMax)),
+      Math.max(0, Math.min(1, yMax)),
+    ];
+  })();
+
   // Parse a short detection label from the answer (first sentence or line)
   const detection = (() => {
     if (!answer) return null;
@@ -55,14 +73,14 @@ export default function ResultCard({ result, image1Url }) {
 
   // Draw cropped bbox region as a thumbnail
   useEffect(() => {
-    if (!bbox || bbox.length !== 4 || !image1Url || !cropCanvasRef.current) return;
+    if (!normalizedBbox || !image1Url || !cropCanvasRef.current) return;
 
     const img = new Image();
     img.onload = () => {
       const canvas = cropCanvasRef.current;
       if (!canvas) return;
 
-      const [xMin, yMin, xMax, yMax] = bbox;
+      const [xMin, yMin, xMax, yMax] = normalizedBbox;
       const sx = xMin * img.naturalWidth;
       const sy = yMin * img.naturalHeight;
       const sw = (xMax - xMin) * img.naturalWidth;
@@ -78,7 +96,7 @@ export default function ResultCard({ result, image1Url }) {
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
     };
     img.src = image1Url;
-  }, [bbox, image1Url]);
+  }, [normalizedBbox, image1Url]);
 
   return (
     <div className="rc">
@@ -97,7 +115,7 @@ export default function ResultCard({ result, image1Url }) {
         <div className="rc-field-label">Description</div>
         <div className="rc-description-block">
           <div className="rc-description">{answer}</div>
-          {bbox && bbox.length === 4 && (
+          {normalizedBbox && (
             <canvas ref={cropCanvasRef} className="rc-crop" />
           )}
         </div>
@@ -111,11 +129,11 @@ export default function ResultCard({ result, image1Url }) {
             <span className="rc-meta-value">{confidenceDisplay}</span>
           </div>
         )}
-        {bbox && bbox.length === 4 && (
+        {normalizedBbox && (
           <div className="rc-meta-item">
             <span className="rc-meta-label">Bounding box</span>
             <span className="rc-meta-value rc-mono">
-              {bbox[0].toFixed(3)}, {bbox[1].toFixed(3)} &rarr; {bbox[2].toFixed(3)}, {bbox[3].toFixed(3)}
+              {normalizedBbox[0].toFixed(3)}, {normalizedBbox[1].toFixed(3)} &rarr; {normalizedBbox[2].toFixed(3)}, {normalizedBbox[3].toFixed(3)}
             </span>
           </div>
         )}
