@@ -1,8 +1,8 @@
 """
 main.py — FastAPI backend for GEORE.
 
-Exposes the same agentic pipeline (router → toolkit → prompt → VLM)
-that app.py ran inline in Streamlit, but as HTTP endpoints.
+Exposes the agentic pipeline (router → toolkit → prompt → VLM)
+as clean HTTP endpoints for remote sensing imagery analysis.
 """
 
 import os
@@ -23,7 +23,7 @@ else:
 import numpy as np
 
 
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import FastAPI, File, Form, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from PIL import Image
@@ -51,16 +51,23 @@ app.add_middleware(
 )
 
 
-# ── Helpers (ported from app.py) ─────────────────────────────────────────────
+# ── Helpers ──────────────────────────────────────────────────────────────────
 
 def parse_grounding_json(text: str) -> dict | None:
-    """Extract JSON bbox from grounding model response."""
+    """Extract JSON bbox from grounding model response and normalize scale."""
     try:
         start = text.find("{")
         end = text.rfind("}") + 1
         if start >= 0 and end > start:
-            return json.loads(text[start:end])
-    except (json.JSONDecodeError, ValueError):
+            parsed = json.loads(text[start:end])
+            bbox = parsed.get("bbox")
+            if isinstance(bbox, list) and len(bbox) == 4 and all(isinstance(v, (int, float)) for v in bbox):
+                # Normalize if returned in 0-1000 scale instead of 0-1
+                if max(bbox) > 1.0:
+                    bbox = [round(v / 1000.0, 4) for v in bbox]
+                parsed["bbox"] = bbox
+                return parsed
+    except (json.JSONDecodeError, ValueError, TypeError):
         pass
     return None
 
@@ -88,9 +95,23 @@ def compute_confidence(task_type: str, toolkit_output: dict, answer: str) -> str
 
 
 def _load_image(upload: UploadFile) -> Image.Image:
-    """Read an UploadFile into a PIL RGB Image."""
-    data = upload.file.read()
-    return Image.open(BytesIO(data)).convert("RGB")
+    """Read an UploadFile into a PIL RGB Image with error handling."""
+    try:
+        data = upload.file.read()
+        if not data:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Uploaded file '{upload.filename}' is empty."
+            )
+        img = Image.open(BytesIO(data))
+        return img.convert("RGB")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot decode image file '{upload.filename}'. Please upload a valid PNG, JPG, or TIFF image. Details: {e}"
+        )
 
 
 def _image_to_base64(img: Image.Image, fmt="JPEG") -> str:

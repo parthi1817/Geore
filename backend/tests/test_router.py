@@ -1,5 +1,5 @@
 """
-test_router.py — Unit tests for rule-based query classifier.
+test_router.py — Unit tests for rule-based query classifier and helper utilities.
 """
 
 import unittest
@@ -9,6 +9,7 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from router import classify_query
+from main import parse_grounding_json, compute_confidence
 
 
 class TestRouter(unittest.TestCase):
@@ -31,6 +32,23 @@ class TestRouter(unittest.TestCase):
         # Generic query -> vqa
         self.assertEqual(classify_query("What kind of terrain is visible?", num_images=1, has_sar=False), "vqa")
         self.assertEqual(classify_query("Describe the landscape in detail", num_images=1, has_sar=False), "vqa")
+
+    def test_parse_grounding_json_normalized(self):
+        raw = '{"bbox": [0.1, 0.2, 0.8, 0.9], "description": "reservoir detected"}'
+        parsed = parse_grounding_json(raw)
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed["bbox"], [0.1, 0.2, 0.8, 0.9])
+
+    def test_parse_grounding_json_1000_scale(self):
+        raw = '```json\n{"bbox": [100, 200, 800, 900], "description": "reservoir detected"}\n```'
+        parsed = parse_grounding_json(raw)
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed["bbox"], [0.1, 0.2, 0.8, 0.9])
+
+    def test_confidence_computation(self):
+        self.assertEqual(compute_confidence("vqa", {}, "A very short"), "moderate")
+        long_answer = "This is a detailed analysis of the satellite image depicting extensive vegetation coverage and urban layout across multiple square kilometers."
+        self.assertEqual(compute_confidence("vqa", {}, long_answer), "high")
 
 
 if __name__ == "__main__":
