@@ -322,7 +322,7 @@ async def analyze(
 
     # ── Step 6: Determine model_used label ───────────────────────────────
     if "Gemini" in provider:
-        model_used = "gemini-2.5-flash"
+        model_used = "gemini-3.8-flash"
     elif "NVIDIA" in provider:
         model_used = "nvidia-fallback"
     else:
