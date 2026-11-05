@@ -1,4 +1,9 @@
 import os
+import re
+import requests
+from io import BytesIO
+from PIL import Image
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 # Ensure .env is loaded even if run from project root
@@ -8,15 +13,24 @@ if os.path.exists(_env_path):
 else:
     load_dotenv()
 
-import ee
-import requests
-from io import BytesIO
-from PIL import Image
-from datetime import datetime, timedelta
-from geopy.geocoders import Nominatim
+try:
+    import ee
+    EE_AVAILABLE = True
+except ImportError:
+    ee = None
+    EE_AVAILABLE = False
+
+try:
+    from geopy.geocoders import Nominatim
+    GEOPY_AVAILABLE = True
+except ImportError:
+    Nominatim = None
+    GEOPY_AVAILABLE = False
 
 # Initialize GEE
 def init_gee():
+    if not EE_AVAILABLE or ee is None:
+        return
     try:
         project_id = os.environ.get("GEE_PROJECT_ID")
         key_path = os.environ.get("GEE_SERVICE_ACCOUNT_KEY_PATH")
@@ -38,11 +52,9 @@ def init_gee():
 init_gee()
 
 
-import re
-
 def get_coordinates(location_str):
     """Geocodes a location string using Nominatim with intelligent fallbacks."""
-    if not location_str:
+    if not location_str or Nominatim is None:
         return None, None
         
     # Clean punctuation and extra spaces
@@ -50,7 +62,10 @@ def get_coordinates(location_str):
     if not cleaned:
         return None, None
 
-    geolocator = Nominatim(user_agent="SatQuery_AI_Agent")
+    try:
+        geolocator = Nominatim(user_agent="SatQuery_AI_Agent")
+    except Exception:
+        return None, None
     
     candidates = [cleaned]
     
@@ -98,6 +113,8 @@ def get_default_date_range(days=60):
     return start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')
 
 def create_buffer_region(lat, lon, buffer_meters=2000):
+    if ee is None:
+        return None
     point = ee.Geometry.Point([lon, lat])
     return point.buffer(buffer_meters).bounds()
 
@@ -116,6 +133,8 @@ def _download_image(ee_image, region, dimensions=512):
     return None
 
 def fetch_optical_image(lat, lon, buffer_meters=2000, date_range=None):
+    if ee is None:
+        return None, None
     if not date_range:
         date_range = get_default_date_range()
     
@@ -139,6 +158,8 @@ def fetch_optical_image(lat, lon, buffer_meters=2000, date_range=None):
     return pil_image, bounds
 
 def fetch_sar_image(lat, lon, buffer_meters=2000, date_range=None):
+    if ee is None:
+        return None, None
     if not date_range:
         date_range = get_default_date_range()
         
@@ -172,7 +193,10 @@ def fetch_bitemporal_pair(lat, lon, date_range_1=None, date_range_2=None, buffer
     img2, bounds2 = fetch_optical_image(lat, lon, buffer_meters, date_range_2)
     
     return img1, img2, bounds2
+
 def fetch_optical_multiband(lat, lon, buffer_meters=2000, date_range=None):
+    if ee is None:
+        return None, None, None
     if not date_range:
         date_range = get_default_date_range()
     

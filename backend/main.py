@@ -8,9 +8,13 @@ as clean HTTP endpoints for remote sensing imagery analysis.
 import os
 import json
 import time
+import uuid
+import glob
 import base64
+import numpy as np
 from io import BytesIO
 from typing import Optional
+from datetime import datetime
 from dotenv import load_dotenv
 
 # Ensure .env is loaded even if run from project root
@@ -19,9 +23,6 @@ if os.path.exists(_env_path):
     load_dotenv(_env_path)
 else:
     load_dotenv()
-
-import numpy as np
-
 
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,10 +34,28 @@ from rs_toolkit import compute_change_mask, compute_fusion_stats
 from prompts import build_prompt
 from vlm_client import call_vlm
 
-from gee_fetcher import get_coordinates, fetch_optical_multiband, fetch_bitemporal_multiband, fetch_sar_image
-from datetime import datetime
+try:
+    from gee_fetcher import get_coordinates, fetch_optical_multiband, fetch_bitemporal_multiband, fetch_sar_image
+except Exception:
+    get_coordinates = None
+    fetch_optical_multiband = None
+    fetch_bitemporal_multiband = None
+    fetch_sar_image = None
 
-import spectral_indices as si
+try:
+    import spectral_indices as si
+except Exception:
+    si = None
+
+try:
+    from reportlab.platypus import SimpleDocTemplate
+    from reportlab.lib.pagesizes import letter
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    SimpleDocTemplate = None
+    letter = None
+    REPORTLAB_AVAILABLE = False
+
 
 # ── App setup ────────────────────────────────────────────────────────────────
 
@@ -83,14 +102,17 @@ def compute_confidence(task_type: str, toolkit_output: dict, answer: str) -> str
         return "moderate"
     elif task_type == "fusion":
         agreement = toolkit_output.get("agreement_pct", 0) if toolkit_output else 0
-        if agreement > 50: return "high"
+        if agreement > 50:
+            return "high"
         return "moderate"
     elif task_type == "grounding":
         parsed = parse_grounding_json(answer)
-        if parsed and parsed.get("bbox", [0, 0, 0, 0]) != [0, 0, 0, 0]: return "high"
+        if parsed and parsed.get("bbox", [0, 0, 0, 0]) != [0, 0, 0, 0]:
+            return "high"
         return "moderate"
     else:  # vqa
-        if len(answer) > 100: return "high"
+        if len(answer) > 100:
+            return "high"
         return "moderate"
 
 
@@ -121,14 +143,9 @@ def _image_to_base64(img: Image.Image, fmt="JPEG") -> str:
     return base64.b64encode(buf.getvalue()).decode("utf-8")
 
 
-import os
-import uuid
-import glob
-from reportlab.platypus import SimpleDocTemplate
-from reportlab.lib.pagesizes import letter
-
 SESSIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".sessions")
 os.makedirs(SESSIONS_DIR, exist_ok=True)
+
 
 def cleanup_sessions(max_sessions=100, max_age_hours=2):
     """
@@ -140,33 +157,30 @@ def cleanup_sessions(max_sessions=100, max_age_hours=2):
             return
             
         now = time.time()
-        # Sort files by modification time (oldest first)
         files.sort(key=os.path.getmtime)
         
         for json_file in files:
             age_hours = (now - os.path.getmtime(json_file)) / 3600.0
             if age_hours > max_age_hours:
-                # Delete json
                 os.remove(json_file)
-                # Delete associated image
                 img_file = json_file.replace(".json", ".jpg")
                 if os.path.exists(img_file):
                     os.remove(img_file)
-                # Check if we are now under the limit
                 remaining_files = glob.glob(os.path.join(SESSIONS_DIR, "*.json"))
                 if len(remaining_files) <= max_sessions:
                     break
             else:
-                # The oldest file is not old enough, so stop deleting
                 break
     except Exception as e:
         print("Cleanup error:", e)
+
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
 
 @app.get("/regions")
 def get_regions():
@@ -193,6 +207,8 @@ async def analyze(
     
     if location:
         source_type = "gee_live_fetch"
+        if get_coordinates is None:
+            return JSONResponse(status_code=503, content={"error": "GEE coordinates resolver is currently unavailable."})
         lat, lon = get_coordinates(location)
         if lat is None or lon is None:
             return JSONResponse(status_code=400, content={"error": f"Could not find coordinates for '{location}'. Please try a nearby city or standard spelling (e.g. 'Tirupati')."})
@@ -200,20 +216,22 @@ async def analyze(
         fetched_coords = {"lat": lat, "lon": lon}
         fetch_date = datetime.now().strftime("%Y-%m-%d")
         
-        # Determine what to fetch based on simple heuristic or query
         if "change" in query.lower() or "trend" in query.lower() or "deforestation" in query.lower():
-            img1_gee, img2_gee, bounds, bands1, bands2 = fetch_bitemporal_multiband(lat, lon)
-            if img1_gee and img2_gee:
-                images.extend([img1_gee, img2_gee])
+            if fetch_bitemporal_multiband:
+                img1_gee, img2_gee, bounds, bands1, bands2 = fetch_bitemporal_multiband(lat, lon)
+                if img1_gee and img2_gee:
+                    images.extend([img1_gee, img2_gee])
         elif has_sar:
-            img1_gee, bounds, bands1 = fetch_optical_multiband(lat, lon)
-            img2_gee, _ = fetch_sar_image(lat, lon)
-            if img1_gee: images.append(img1_gee)
-            if img2_gee: images.append(img2_gee)
+            if fetch_optical_multiband and fetch_sar_image:
+                img1_gee, bounds, bands1 = fetch_optical_multiband(lat, lon)
+                img2_gee, _ = fetch_sar_image(lat, lon)
+                if img1_gee: images.append(img1_gee)
+                if img2_gee: images.append(img2_gee)
         else:
-            img1_gee, bounds, bands1 = fetch_optical_multiband(lat, lon)
-            if img1_gee:
-                images.append(img1_gee)
+            if fetch_optical_multiband:
+                img1_gee, bounds, bands1 = fetch_optical_multiband(lat, lon)
+                if img1_gee:
+                    images.append(img1_gee)
                 
         if not images:
             return JSONResponse(status_code=400, content={"error": "Could not fetch satellite images for the given location."})
@@ -262,7 +280,7 @@ async def analyze(
 
     q_lower = query.lower()
     
-    if bands1:
+    if bands1 and si is not None:
         is_ag = any(w in q_lower for w in ["crop", "vegetation", "agriculture", "farmland", "farm"])
         is_forest = any(w in q_lower for w in ["deforestation", "forest"])
         is_flood = any(w in q_lower for w in ["flood", "waterlogged", "inundation"])
@@ -283,7 +301,6 @@ async def analyze(
             if bounds:
                 flood_geojson = si.flood_region_to_geojson(fmask, bounds)
         else:
-            # Generic Heatmap Overlay (NDVI default)
             ndvi = si.compute_ndvi(bands1)
             heatmap_base64 = si.generate_index_heatmap(ndvi, cmap_name='RdYlGn', vmin=-1, vmax=1)
 
@@ -345,26 +362,21 @@ async def analyze(
     if flood_geojson:
         response["flood_geojson"] = flood_geojson
         
-    # Send satellite images to frontend for display
     if img1:
         response["image1_base64"] = _image_to_base64(img1)
     if img2:
         response["image2_base64"] = _image_to_base64(img2)
 
-    # Inject query for the report
     response["query"] = query
 
-    # Save session
     session_id = str(uuid.uuid4())
     response["session_id"] = session_id
     
     try:
-        # Save JSON
         json_path = os.path.join(SESSIONS_DIR, f"{session_id}.json")
         with open(json_path, 'w') as f:
             json.dump(response, f)
             
-        # Save image 1
         if img1:
             img_path = os.path.join(SESSIONS_DIR, f"{session_id}.jpg")
             img1.convert("RGB").save(img_path, format="JPEG")
@@ -374,6 +386,7 @@ async def analyze(
     cleanup_sessions(max_sessions=100, max_age_hours=2)
         
     return response
+
 
 @app.get('/generate_report/{session_id}')
 async def get_report(session_id: str):
@@ -392,4 +405,3 @@ async def get_report(session_id: str):
     except Exception as e:
         print('Report generation error:', e)
         return {'error': 'Failed to generate report'}
-
