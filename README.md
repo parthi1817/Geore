@@ -46,11 +46,13 @@ npm install
 npm run dev
 ```
 
-Open **http://localhost:5173** in your browser.
+Navigate to `http://localhost:5173` in your browser.
+
+---
 
 ## Usage
 
-1. Upload a satellite image (PNG, JPEG, or GeoTIFF)
+1. Upload a satellite image (PNG, JPEG, or GeoTIFF) or provide a region location
 2. Optionally upload a second image for change detection or fusion
 3. Type a query and click **Run analysis**
 
@@ -61,21 +63,44 @@ Open **http://localhost:5173** in your browser.
 | Change Detection | 2 images + temporal query | "What changed between these images?" |
 | Optical–SAR Fusion | 2 images (SAR checked) | "Analyze the land cover" |
 
-## API
+---
+
+## Running Tests
+
+GEORE includes a dedicated unit test suite for the deterministic remote-sensing toolkit and query classifier:
+
+```bash
+# Run all backend unit tests
+python -m unittest discover -s backend/tests -p "test_*.py" -v
+```
+
+Tests run automatically on every push via the GitHub Actions CI pipeline.
+
+---
+
+## API Reference
 
 ### `GET /health`
-Returns `{"status": "ok"}`.
+Returns server status:
+```json
+{"status": "ok"}
+```
+
+### `GET /regions`
+Returns list of monitored regions available for live Earth Engine observation fetching.
 
 ### `POST /analyze`
 Multipart form:
 - `query` — string (required)
 - `image1` — file (optional if `location` provided)
 - `image2` — file (optional comparison/SAR image)
-- `location` — string (optional, e.g. "Vizag Port" for live Google Earth Engine fetch)
+- `location` — string (optional, e.g. "NP-KTM-01" or "Kathmandu" for live/synthetic fetch)
 - `has_sar` — boolean (optional, default `false`)
 
-Returns JSON with `answer`, `task`, `detection`, `confidence`, `execution_trace`, `image1_base64`, `session_id`, and spectral charts/geojson when applicable.
+Returns JSON with `answer`, `task`, `detection`, `confidence`, `execution_trace`, `image1_base64`, and telemetry when applicable.
 
-### `GET /generate_report/{session_id}`
-Generates and downloads a publication-ready PDF analysis report.
+---
 
+## License
+
+Distributed under the MIT License.
