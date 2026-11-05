@@ -168,6 +168,11 @@ def cleanup_sessions(max_sessions=100, max_age_hours=2):
 def health():
     return {"status": "ok"}
 
+@app.get("/regions")
+def get_regions():
+    from region_config import REGIONS
+    return [{"id": rid, "name": r["name"], "lat": r["lat"], "lon": r["lon"]} for rid, r in REGIONS.items()]
+
 
 @app.post("/analyze")
 async def analyze(

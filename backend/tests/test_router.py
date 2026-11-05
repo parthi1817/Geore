@@ -9,7 +9,8 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from router import classify_query
-from main import parse_grounding_json, compute_confidence
+from main import app, parse_grounding_json, compute_confidence
+from fastapi.testclient import TestClient
 
 
 class TestRouter(unittest.TestCase):
@@ -49,6 +50,24 @@ class TestRouter(unittest.TestCase):
         self.assertEqual(compute_confidence("vqa", {}, "A very short"), "moderate")
         long_answer = "This is a detailed analysis of the satellite image depicting extensive vegetation coverage and urban layout across multiple square kilometers."
         self.assertEqual(compute_confidence("vqa", {}, long_answer), "high")
+
+    def test_api_regions_and_validation(self):
+        client = TestClient(app)
+        # Test /health
+        res_health = client.get("/health")
+        self.assertEqual(res_health.status_code, 200)
+        self.assertEqual(res_health.json(), {"status": "ok"})
+
+        # Test /regions
+        res_regions = client.get("/regions")
+        self.assertEqual(res_regions.status_code, 200)
+        regions = res_regions.json()
+        self.assertTrue(len(regions) >= 2)
+        self.assertEqual(regions[0]["id"], "NP-KTM-01")
+
+        # Test /analyze validation without image or location
+        res_bad = client.post("/analyze", data={"query": "Test query"})
+        self.assertEqual(res_bad.status_code, 400)
 
 
 if __name__ == "__main__":
