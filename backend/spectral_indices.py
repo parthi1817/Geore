@@ -1,8 +1,12 @@
 import numpy as np
 import base64
 from io import BytesIO
-import matplotlib.pyplot as plt
 from PIL import Image
+
+try:
+    import matplotlib.pyplot as plt
+except ImportError:
+    plt = None
 
 def compute_ndvi(bands):
     """NDVI = (NIR - Red) / (NIR + Red)"""
@@ -24,6 +28,8 @@ def compute_ndwi(bands):
     return ndwi
 
 def generate_index_heatmap(index_array, cmap_name='RdYlGn', vmin=-1, vmax=1):
+    if plt is None:
+        return None
     plt.figure(figsize=(6, 6))
     plt.imshow(index_array, cmap=cmap_name, vmin=vmin, vmax=vmax)
     plt.axis('off')
@@ -78,14 +84,14 @@ def detect_flood_regions(ndwi_array, threshold=0.3):
     return pct, flood_mask
 
 def flood_region_to_geojson(flood_mask, bounds):
-    from shapely.geometry import shape, mapping
-    import rasterio.features
-    from rasterio.transform import from_bounds
-
     if not bounds:
         return None
         
     try:
+        from shapely.geometry import shape, mapping
+        import rasterio.features
+        from rasterio.transform import from_bounds
+
         lons = [p[0] for p in bounds]
         lats = [p[1] for p in bounds]
         lon_min, lon_max = min(lons), max(lons)

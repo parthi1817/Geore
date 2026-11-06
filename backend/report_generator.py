@@ -3,13 +3,27 @@ import time
 import json
 import base64
 from io import BytesIO
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage, PageBreak
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib import colors
-import matplotlib.pyplot as plt
+
+try:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage, PageBreak
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib import colors
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
+    letter = None
+
+try:
+    import matplotlib.pyplot as plt
+except ImportError:
+    plt = None
+
 
 def generate_report(result_json, image_path, output_path):
+    if not REPORTLAB_AVAILABLE:
+        raise RuntimeError("reportlab is not installed. PDF generation is unavailable.")
+
     doc = SimpleDocTemplate(output_path, pagesize=letter,
                             rightMargin=40, leftMargin=40,
                             topMargin=40, bottomMargin=40)
@@ -38,7 +52,6 @@ def generate_report(result_json, image_path, output_path):
     story.append(Spacer(1, 10))
 
     # 2. Query
-    # Note: query is not stored in result_json right now. I should modify main.py to save 'query' in the result JSON.
     query = result_json.get("query", "N/A")
     story.append(Paragraph("<b>Query:</b>", styles['SectionHeader']))
     story.append(Paragraph(query, styles['NormalText']))
@@ -99,7 +112,7 @@ def generate_report(result_json, image_path, output_path):
     if has_analytics:
         story.append(Paragraph("<b>Supporting Analytics:</b>", styles['SectionHeader']))
         
-        if result_json.get("vegetation_breakdown"):
+        if result_json.get("vegetation_breakdown") and plt is not None:
             try:
                 data = result_json["vegetation_breakdown"]
                 labels = [d["name"] for d in data]
@@ -118,7 +131,7 @@ def generate_report(result_json, image_path, output_path):
             except Exception as e:
                 print("Error making pie chart:", e)
                 
-        if result_json.get("forest_cover_trend"):
+        if result_json.get("forest_cover_trend") and plt is not None:
             try:
                 data = result_json["forest_cover_trend"]
                 labels = [d["name"] for d in data]
@@ -164,4 +177,3 @@ def generate_report(result_json, image_path, output_path):
     for f in temp_files:
         if os.path.exists(f):
             os.remove(f)
-
